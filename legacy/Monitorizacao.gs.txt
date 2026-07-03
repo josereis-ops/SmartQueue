@@ -1,0 +1,226 @@
+var ABA_MONITORIZACAO = 'Logs_Monitorizacao';
+
+/**
+ * Função para embrulhar e registar execuções otimizadas via CacheService.
+ * O log é feito num buffer temporário e transferido para a sheet via LockService.
+ */
+function logAcaoHealthCheck(funcName, tempoExecucaoMs) {
+  try {
+    var email = Session.getActiveUser().getEmail().toLowerCase().trim();
+    var agora = new Date();
+    var tsFim = agora.getTime();
+    var tsInicio = agora.getTime() - tempoExecucaoMs;
+    
+    var cache = CacheService.getScriptCache();
+    var bufferId = "monitorizacao_buffer_str";
+    var lock = LockService.getScriptLock();
+    
+    if (lock.tryLock(5000)) {
+      var raw = cache.get(bufferId) || "";
+      var novaLinha = tsInicio + "|" + tsFim + "|" + email + "|" + funcName;
+      raw = raw === "" ? novaLinha : raw + ";" + novaLinha;
+      cache.put(bufferId, raw, 21600); // 6 horas em RAM
+      lock.releaseLock();
+    }
+  } catch(e) {
+     console.error("Erro no HealthCheck: " + e.message);
+  }
+}
+
+function processarLogsAcumulados() {
+  var cache = CacheService.getScriptCache();
+  var bufferId = "monitorizacao_buffer_str";
+  var lock = LockService.getScriptLock();
+
+  if (lock.tryLock(10000)) {
+    var raw = cache.get(bufferId);
+    if (raw && raw.trim() !== "") {
+      var linhas = raw.split(";");
+      var batchRows = [];
+      for (var i = 0; i < linhas.length; i++) {
+        if (linhas[i].trim() !== "") {
+          var cols = linhas[i].split("|");
+          if (cols.length === 4) {
+            batchRows.push([parseInt(cols[0]), parseInt(cols[1]), cols[2], cols[3]]);
+          }
+        }
+      }
+
+      if (batchRows.length > 0) {
+        var ss = getSpreadsheet();
+        var sheet = ss.getSheetByName(ABA_MONITORIZACAO);
+        if (!sheet) {
+          sheet = ss.insertSheet(ABA_MONITORIZACAO);
+          sheet.appendRow(["Start_TS", "End_TS", "User", "Function"]);
+        }
+        sheet.getRange(sheet.getLastRow() + 1, 1, batchRows.length, 4).setValues(batchRows);
+      }
+      cache.remove(bufferId);
+    }
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Fetch do Frontend.
+ */
+/**
+ * Fetch do Frontend.
+ */
+function obterDadosHealthCheck(dataISO, mesesSelecionados) {
+   try {
+      // 1. OTIMIZAÇÃO: Tenta ler o histórico agregado a partir do Cache v3
+      var histAggCache = _getCacheChunked("historico_agg_v3");
+      if (!histAggCache) {
+          _obterDadosHistoricoAgregado();
+      }
+
+      var ss = getSpreadsheet();
+      var ID_HISTORICO = '11dDUUgq087rvSl1COrJ8ZbSKwLjEbytTsZiYKAFYZMY';
+      var ssHist = SpreadsheetApp.openById(ID_HISTORICO);
+      
+      var dFiltroInicio = dataISO ? new Date(dataISO) : new Date("2000-01-01T00:00:00");
+      if(dataISO) dFiltroInicio.setHours(0,0,0,0);
+      
+      var dFiltroFim = dataISO ? new Date(dataISO) : new Date("2099-12-31T23:59:59");
+      if(dataISO) dFiltroFim.setHours(23,59,59,999);
+      var timezone = Session.getScriptTimeZone();
+
+      var sheetAtiva = ss.getSheetByName('Logs_Monitorizacao');
+      var sheetArq = ssHist.getSheetByName('Logs_Monitorizacao_Arq');
+      
+      var dadosAtivos = (sheetAtiva && sheetAtiva.getLastRow() > 1) ? sheetAtiva.getRange(2, 1, sheetAtiva.getLastRow()-1, 4).getValues() : [];
+      var dadosArq = (sheetArq && sheetArq.getLastRow() > 1) ? sheetArq.getRange(2, 1, sheetArq.getLastRow()-1, 4).getValues() : [];
+      
+      // OTIMIZAÇÃO: Ler dados que estão ainda na memória RAM e via PropertiesService
+      var dadosCache = [];
+      var rawCache = PropertiesService.getScriptProperties().getProperty('monitorizacao_buffer_str');
+      if (!rawCache) {
+          rawCache = CacheService.getScriptCache().get("monitorizacao_buffer_str");
+      }
+
+      if (rawCache && rawCache.trim() !== "") {
+        var linhasCache = rawCache.split(";");
+        for (var c = 0; c < linhasCache.length; c++) {
+          if (linhasCache[c].trim() !== "") {
+            var colsCache = linhasCache[c].split("|");
+            if (colsCache.length === 4) {
+              dadosCache.push([parseInt(colsCache[0]), parseInt(colsCache[1]), colsCache[2], colsCache[3]]);
+            }
+          }
+        }
+      }
+
+      // Une as matrizes num único "Super Log"
+      var dataCompleta = dadosAtivos.concat(dadosArq).concat(dadosCache);
+
+      var logsDoDia = [];
+      var logsEvolucao = {}; 
+
+      // 2. PROCESSAMENTO UNIFICADO
+      for (var i = 0; i < dataCompleta.length; i++) {
+         var tsIn = parseInt(dataCompleta[i][0]);
+         var tsOut = parseInt(dataCompleta[i][1]);
+         if (isNaN(tsIn) || isNaN(tsOut)) continue;
+
+         var dRef = new Date(tsIn);
+         var mesAnoLog = Utilities.formatDate(dRef, timezone, "yyyyMM");
+         
+         if (mesesSelecionados && mesesSelecionados.indexOf(mesAnoLog) !== -1) {
+            var diaChave = Utilities.formatDate(dRef, timezone, "dd/MM");
+            if (!logsEvolucao[diaChave]) logsEvolucao[diaChave] = [];
+            logsEvolucao[diaChave].push({in: tsIn, out: tsOut});
+         }
+
+         if (dRef >= dFiltroInicio && dRef <= dFiltroFim) {
+            logsDoDia.push({ 
+               in: tsIn, 
+               out: tsOut, 
+               user: dataCompleta[i][2].toString(), 
+               script: dataCompleta[i][3].toString() 
+            });
+         }
+      }
+
+      function calcularPico(listaLogs) {
+         if (!listaLogs || listaLogs.length === 0) return 0;
+         var eventos = [];
+         listaLogs.forEach(function(l) {
+            eventos.push({t: l.in, v: 1});
+            eventos.push({t: l.out, v: -1});
+         });
+         eventos.sort(function(a, b) { return a.t - b.t || a.v - b.v; });
+         var pico = 0; var atual = 0;
+         eventos.forEach(function(e) {
+            atual += e.v;
+            if (atual > pico) pico = atual;
+         });
+         return pico;
+      }
+
+      var picoGlobal = calcularPico(logsDoDia);
+      var picosPorUser = {};
+      var usersUnicos = [...new Set(logsDoDia.map(l => l.user))];
+      usersUnicos.forEach(u => picosPorUser[u] = calcularPico(logsDoDia.filter(l => l.user === u)));
+
+      var picosPorScript = {};
+      var scriptsUnicos = [...new Set(logsDoDia.map(l => l.script))];
+      scriptsUnicos.forEach(s => picosPorScript[s] = calcularPico(logsDoDia.filter(l => l.script === s)));
+
+      var labelsEvolucao = Object.keys(logsEvolucao).sort(function(a, b) {
+          var pA = a.split("/").reverse().join("");
+          var pB = b.split("/").reverse().join("");
+          return pA.localeCompare(pB);
+      });
+      var dadosEvolucao = labelsEvolucao.map(k => calcularPico(logsEvolucao[k]));
+
+      var logsPorHora = {};
+      for(var h = 0; h < 24; h++) {
+          var hrStr = h.toString().padStart(2, '0') + ":00";
+          logsPorHora[hrStr] = [];
+      }
+      
+      logsDoDia.forEach(function(l) {
+          var d = new Date(l.in);
+          var hrStr = d.getHours().toString().padStart(2, '0') + ":00";
+          logsPorHora[hrStr].push(l);
+      });
+      
+      var labelsHora = Object.keys(logsPorHora).sort();
+      var dadosHora = labelsHora.map(k => calcularPico(logsPorHora[k]));
+
+      var totalUsersDia = usersUnicos.length;
+      var potencialUsers = 0;
+      if (picoGlobal > 0 && totalUsersDia > 0) {
+          var chamadasPorUserNoPico = picoGlobal / totalUsersDia;
+          potencialUsers = Math.floor(1000 / chamadasPorUserNoPico);
+      }
+
+      var pesoTotalKB = (JSON.stringify(dataCompleta).length / 1024).toFixed(1);
+
+      return { 
+          sucesso: true, 
+          picoGlobal: picoGlobal,
+          totalUsersDia: totalUsersDia,
+          potencial: potencialUsers > 0 ? potencialUsers : "---",
+          topUsers: Object.keys(picosPorUser).map(k => ({u: k, v: picosPorUser[k]})).sort((a,b) => b.v - a.v).slice(0, 5),
+          topScripts: Object.keys(picosPorScript).map(k => ({s: k, v: picosPorScript[k]})).sort((a,b) => b.v - a.v).slice(0, 5),
+          evolucaoMensal: { labels: labelsEvolucao, data: dadosEvolucao },
+          evolucaoHoraria: { labels: labelsHora, data: dadosHora },
+          totalCallsDia: logsDoDia.length,
+          pesoKB: pesoTotalKB
+      };
+   } catch(e) { 
+      return { sucesso: false, erroSilencioso: true, mensagem: "Erro ao ler arquivo: " + e.message }; 
+   }
+}
+
+function abrirDashboardMonitorizacao() {
+   // O nome aqui tem de bater certo com o ficheiro HTML que criaste
+   var html = HtmlService.createTemplateFromFile('Monitorizacao Frontend')
+      .evaluate()
+      .setTitle('Health Check - Smart Queue')
+      .setWidth(1200)
+      .setHeight(800);
+   SpreadsheetApp.getUi().showModalDialog(html, 'Monitorização de Infraestrutura');
+}

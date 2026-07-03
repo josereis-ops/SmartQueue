@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root { 
+        --randstad-blue: #2175D9; 
+        --fundo-card: #0b122e; 
+        --fundo-input: #162454;
+        --sucesso: #10B981; 
+        --alerta-vermelho: #EF4444; 
+      }
+      body { font-family: 'Inter', sans-serif; background-color: var(--fundo-card); color: white; margin: 0; padding: 20px; }
+      .container { display: flex; gap: 20px; height: 500px; }
+      .coluna { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 20px; flex: 1; display: flex; flex-direction: column; }
+      h2 { color: var(--randstad-blue); margin-top: 0; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+      .lista-scroll { overflow-y: auto; flex: 1; padding-right: 10px; }
+      
+      .item-lista { background: var(--fundo-input); padding: 10px; border-radius: 6px; margin-bottom: 8px; cursor: pointer; display: flex; align-items: center; border: 1px solid transparent; }
+      .item-lista:hover { border-color: var(--randstad-blue); }
+      .item-lista input[type="checkbox"] { margin-right: 15px; transform: scale(1.2); cursor: pointer; }
+      
+      .nome-agente { font-weight: bold; font-size: 14px; }
+      .skills-atuais { font-size: 10px; color: #9CA3AF; margin-top: 4px; font-family: monospace; }
+      
+      .acoes { display: flex; gap: 10px; margin-top: 20px; justify-content: center; }
+      button { padding: 12px 24px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
+      .btn-add { background-color: var(--sucesso); color: white; }
+      .btn-add:hover { filter: brightness(1.1); }
+      .btn-remove { background-color: var(--alerta-vermelho); color: white; }
+      .btn-remove:hover { filter: brightness(1.1); }
+      
+      #loader { text-align: center; color: var(--randstad-blue); padding: 20px; font-weight: bold; }
+      #mensagem { text-align: center; margin-top: 15px; font-weight: bold; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="loader">A carregar matriz de skills...</div>
+    
+    <div id="interface-principal" style="display:none;">
+      <div class="container">
+        <div class="coluna">
+          <h2>1. Seleciona os Operadores</h2>
+          <div style="margin-bottom: 10px;">
+            <input type="checkbox" id="check-todos-users" onchange="selecionarTodos('chk-user', this.checked)"> <label for="check-todos-users" style="font-size:12px; color:#9CA3AF;">Selecionar Todos</label>
+          </div>
+          <div class="lista-scroll" id="lista-users"></div>
+        </div>
+
+        <div class="coluna">
+          <h2>2. Seleciona as Skills</h2>
+          <div style="margin-bottom: 10px;">
+            <input type="checkbox" id="check-todas-skills" onchange="selecionarTodos('chk-skill', this.checked)"> <label for="check-todas-skills" style="font-size:12px; color:#9CA3AF;">Selecionar Todas</label>
+          </div>
+          <div class="lista-scroll" id="lista-skills"></div>
+        </div>
+      </div>
+
+      <div class="acoes">
+        <button class="btn-add" onclick="aplicarAlteracoes('adicionar')">➕ ADICIONAR SKILLS</button>
+        <button class="btn-remove" onclick="aplicarAlteracoes('remover')">➖ REMOVER SKILLS</button>
+      </div>
+      <div id="mensagem"></div>
+    </div>
+
+    <script>
+      window.onload = function() {
+        carregarDados();
+      };
+
+      function carregarDados() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('interface-principal').style.display = 'none';
+        document.getElementById('mensagem').innerText = "";
+
+        google.script.run.withSuccessHandler(function(res) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('interface-principal').style.display = 'block';
+
+          var htmlUsers = "";
+          res.users.forEach(function(u) {
+            htmlUsers += '<label class="item-lista">' +
+                         '<input type="checkbox" class="chk-user" value="' + u.email + '">' +
+                         '<div><div class="nome-agente">' + u.nome + '</div>' +
+                         '<div class="skills-atuais">Skills: ' + (u.skills || 'Nenhuma') + '</div></div></label>';
+          });
+          document.getElementById('lista-users').innerHTML = htmlUsers;
+
+          var htmlSkills = "";
+          res.skills.forEach(function(sk) {
+            htmlSkills += '<label class="item-lista">' +
+                          '<input type="checkbox" class="chk-skill" value="' + sk + '">' +
+                          '<div class="nome-agente">' + sk + '</div></label>';
+          });
+          document.getElementById('lista-skills').innerHTML = htmlSkills;
+        }).obterDadosGestorSkills();
+      }
+
+      function selecionarTodos(classe, estado) {
+        var checkboxes = document.querySelectorAll('.' + classe);
+        checkboxes.forEach(function(cb) { cb.checked = estado; });
+      }
+
+      function aplicarAlteracoes(acao) {
+        var usersCheck = document.querySelectorAll('.chk-user:checked');
+        var emails = Array.from(usersCheck).map(function(cb) { return cb.value; });
+
+        var skillsCheck = document.querySelectorAll('.chk-skill:checked');
+        var skills = Array.from(skillsCheck).map(function(cb) { return cb.value; });
+
+        if(emails.length === 0 || skills.length === 0) {
+           document.getElementById('mensagem').style.color = "var(--alerta-amarelo)";
+           document.getElementById('mensagem').innerText = "Seleciona pelo menos 1 operador e 1 skill.";
+           return;
+        }
+
+        document.getElementById('mensagem').style.color = "white";
+        document.getElementById('mensagem').innerText = "A processar...";
+
+        google.script.run.withSuccessHandler(function(res) {
+           if(res.sucesso) {
+              document.getElementById('mensagem').style.color = "var(--sucesso)";
+              document.getElementById('mensagem').innerText = res.mensagem;
+              setTimeout(carregarDados, 1500); // Recarrega para mostrar as novas skills na UI
+           } else {
+              document.getElementById('mensagem').style.color = "var(--alerta-vermelho)";
+              document.getElementById('mensagem').innerText = res.mensagem;
+           }
+        }).atualizarSkillsEmMassa(emails, skills, acao);
+      }
+    </script>
+  </body>
+</html>

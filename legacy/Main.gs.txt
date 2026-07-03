@@ -1,0 +1,37 @@
+function doGet() {
+  return HtmlService.createTemplateFromFile('Dashboard')
+      .evaluate()
+      .setTitle('Smart Queue - Operações')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * FUNÇÃO DE EMERGÊNCIA
+ * Executar manualmente apenas se a app ficar "a pensar" 
+ * ou se houver suspeita de Deadlock após erro de servidor.
+ */
+function ADMIN_ResetCadeados() {
+  const scriptLock = LockService.getScriptLock();
+  const docLock = LockService.getDocumentLock();
+  const userLock = LockService.getUserLock();
+  
+  scriptLock.releaseLock();
+  docLock.releaseLock();
+  userLock.releaseLock();
+  
+  console.log("🔓 [ADMIN] Todos os níveis de cadeados foram libertados com sucesso.");
+}
+
+function hardResetUtilizadora() {
+  var emailAlvo = "cc.ana.araujo@randstad.pt"; // Coloca o email dela aqui
+  
+  // 1. Limpa o Cache de Sessão (Usando a tua função existente)
+  var timezone = Session.getScriptTimeZone();
+  var hojeStr = Utilities.formatDate(new Date(), timezone, "yyyy-MM-dd");
+  var cacheKey = "perfil_" + emailAlvo + "_" + hojeStr; 
+  CacheService.getScriptCache().remove(cacheKey);
+  
+  Logger.log("Cache limpo para: " + emailAlvo);
+  // Nota: Não conseguimos limpar as UserProperties dela diretamente pelo teu admin, 
+  // ela teria de correr um script de limpeza ou simplesmente tentar a Janela Anónima primeiro.
+}
