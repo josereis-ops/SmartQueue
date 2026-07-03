@@ -154,6 +154,26 @@ AS $$
   END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.has_permissao_developer()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.utilizadores u
+    JOIN public.perfis p ON p.id = u.perfil_id
+    WHERE u.id = auth.uid()
+      AND p.slug = 'developer'
+  )
+  OR EXISTS (
+    SELECT 1 FROM public.utilizadores u
+    WHERE u.id = auth.uid() AND u.role = 'developer'
+  );
+$$;
+
 CREATE OR REPLACE FUNCTION public.has_permissao(p_codigo TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -175,26 +195,6 @@ AS $$
     WHERE u.id = auth.uid()
       AND u.perfil_id IS NULL
       AND p_codigo = ANY (public._permissoes_role_legacy(u.role))
-  );
-$$;
-
-CREATE OR REPLACE FUNCTION public.has_permissao_developer()
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.utilizadores u
-    JOIN public.perfis p ON p.id = u.perfil_id
-    WHERE u.id = auth.uid()
-      AND p.slug = 'developer'
-  )
-  OR EXISTS (
-    SELECT 1 FROM public.utilizadores u
-    WHERE u.id = auth.uid() AND u.role = 'developer'
   );
 $$;
 
