@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   adicionarObservacaoSupervisao,
@@ -9,11 +9,13 @@ import {
   alterarEstadoCasoSupervisao,
   alterarPrioridadeFlash,
   concluirCasoDiretoSupervisao,
+  obterCasosSupervisaoDrilldown,
   reatribuirCaso,
 } from "@/lib/api/supervisao";
 import type {
   AgenteSupervisao,
   CasoSupervisao,
+  DrillDownTipo,
   EquipaMaster,
 } from "@/lib/types/supervisao";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
@@ -21,7 +23,8 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 interface CasoDrilldownModalProps {
   aberto: boolean;
   titulo: string;
-  casos: CasoSupervisao[];
+  tipo: DrillDownTipo | null;
+  equipasFiltro: string[];
   agentes: AgenteSupervisao[];
   equipas: EquipaMaster[];
   supabase: SupabaseClient;
@@ -59,35 +62,16 @@ type SortCol =
   | "prioridade"
   | "obs";
 
-function valorOrdenacao(c: CasoSupervisao, col: SortCol): string | number {
-  switch (col) {
-    case "id":
-      return c.id.toLowerCase();
-    case "criacao":
-      return c.criacao;
-    case "rqs":
-      return c.rqs;
-    case "skill":
-      return c.skill.toLowerCase();
-    case "estado":
-      return c.estado.toLowerCase();
-    case "agendIso":
-      return c.agendIso || "";
-    case "resp":
-      return c.resp.toLowerCase();
-    case "prioridade":
-      return c.prioridade_flash ? 1 : 0;
-    case "obs":
-      return c.obsCompleta.toLowerCase();
-    default:
-      return "";
-  }
+function sortColRpc(col: SortCol): string {
+  if (col === "agendIso") return "agendiso";
+  return col;
 }
 
 export function CasoDrilldownModal({
   aberto,
   titulo,
-  casos,
+  tipo,
+  equipasFiltro,
   agentes,
   equipas,
   supabase,
@@ -95,6 +79,7 @@ export function CasoDrilldownModal({
   onActualizado,
 }: CasoDrilldownModalProps) {
   const [pesquisa, setPesquisa] = useState("");
+  const [pesquisaDebounced, setPesquisaDebounced] = useState("");
   const [aProcessar, setAProcessar] = useState<string | null>(null);
   const [mensagem, setMensagem] = useState("");
   const [notaCaso, setNotaCaso] = useState<CasoSupervisao | null>(null);
@@ -104,50 +89,73 @@ export function CasoDrilldownModal({
   const [sortCol, setSortCol] = useState<SortCol>("id");
   const [sortAsc, setSortAsc] = useState(true);
   const [pagina, setPagina] = useState(0);
+  const [casos, setCasos] = useState<CasoSupervisao[]>([]);
+  const [total, setTotal] = useState(0);
+  const [aCarregar, setACarregar] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!aberto) return;
+    setPesquisa("");
+    setPesquisaDebounced("");
+    setPagina(0);
+    setSortCol("id");
+    setSortAsc(true);
+    setMensagem("");
+  }, [aberto, tipo]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const t = setTimeout(() => setPesquisaDebounced(pesquisa), 300);
+    return () => clearTimeout(t);
+  }, [pesquisa, aberto]);
 
   useEffect(() => {
     setPagina(0);
-  }, [pesquisa, sortCol, sortAsc, casos.length]);
+  }, [pesquisaDebounced, sortCol, sortAsc, tipo, equipasFiltro]);
 
-  const operadores = useMemo(
-    () => agentes.filter((a) => !a.isSuper),
-    [agentes]
-  );
-
-  const filtrados = useMemo(() => {
-    if (!pesquisa.trim()) return casos;
-    const q = pesquisa.toLowerCase();
-    return casos.filter(
-      (c) =>
-        c.id.toLowerCase().includes(q) ||
-        c.estado.toLowerCase().includes(q) ||
-        c.skill.toLowerCase().includes(q) ||
-        c.resp.toLowerCase().includes(q) ||
-        c.obsCompleta.toLowerCase().includes(q) ||
-        c.equipa.toLowerCase().includes(q)
-    );
-  }, [casos, pesquisa]);
-
-  const ordenados = useMemo(() => {
-    const list = [...filtrados];
-    list.sort((a, b) => {
-      const va = valorOrdenacao(a, sortCol);
-      const vb = valorOrdenacao(b, sortCol);
-      let cmp = 0;
-      if (typeof va === "number" && typeof vb === "number") {
-        cmp = va - vb;
-      } else {
-        cmp = String(va).localeCompare(String(vb), "pt", { numeric: true });
-      }
-      return sortAsc ? cmp : -cmp;
+  const carregarPagina = useCallback(async () => {
+    if (!aberto || !tipo) return;
+    setACarregar(true);
+    setMensagem("");
+    const res = await obterCasosSupervisaoDrilldown(supabase, {
+      tipo,
+      offset: pagina * PAGE_SIZE,
+      limit: PAGE_SIZE,
+      equipasFiltro: equipasFiltro.length > 0 ? equipasFiltro : undefined,
+      pesquisa: pesquisaDebounced || undefined,
+      sortCol: sortColRpc(sortCol),
+      sortAsc,
     });
-    return list;
-  }, [filtrados, sortCol, sortAsc]);
+    setACarregar(false);
+    if (res.sucesso) {
+      setCasos(res.casos ?? []);
+      setTotal(res.total ?? 0);
+      return;
+    }
+    setCasos([]);
+    setTotal(0);
+    setMensagem(res.mensagem ?? "Erro ao carregar casos.");
+  }, [
+    aberto,
+    tipo,
+    supabase,
+    pagina,
+    equipasFiltro,
+    pesquisaDebounced,
+    sortCol,
+    sortAsc,
+  ]);
 
-  const totalPaginas = Math.max(1, Math.ceil(ordenados.length / PAGE_SIZE));
+  useEffect(() => {
+    void carregarPagina();
+  }, [carregarPagina, refreshKey]);
+
+  const operadores = agentes.filter((a) => !a.isSuper);
+
+  const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const paginaActual = Math.min(pagina, totalPaginas - 1);
   const inicio = paginaActual * PAGE_SIZE;
-  const paginaCasos = ordenados.slice(inicio, inicio + PAGE_SIZE);
 
   const toggleSort = (col: SortCol) => {
     if (sortCol === col) {
@@ -164,9 +172,14 @@ export function CasoDrilldownModal({
   const sortIcon = (col: SortCol) =>
     sortCol === col ? (sortAsc ? " ▲" : " ▼") : "";
 
-  if (!aberto) return null;
+  if (!aberto || !tipo) return null;
 
   const pedirConfirmacao = (acc: PendingAction) => setConfirmacao(acc);
+
+  const actualizar = () => {
+    onActualizado();
+    setRefreshKey((k) => k + 1);
+  };
 
   const runAction = async (casoId: string, fn: () => Promise<RpcRes>) => {
     setAProcessar(casoId);
@@ -174,7 +187,7 @@ export function CasoDrilldownModal({
     const res = await fn();
     setAProcessar(null);
     if (res.sucesso) {
-      onActualizado();
+      actualizar();
       return;
     }
     setMensagem(res.mensagem ?? "Erro na operação.");
@@ -192,7 +205,7 @@ export function CasoDrilldownModal({
     if (res.sucesso) {
       setNotaCaso(null);
       setTextoNota("");
-      onActualizado();
+      actualizar();
       return;
     }
     setMensagem(res.mensagem ?? "Erro ao gravar nota.");
@@ -209,9 +222,9 @@ export function CasoDrilldownModal({
               </p>
               <h2 className="text-base font-bold text-white">{titulo}</h2>
               <p className="text-[10px] text-muted">
-                {ordenados.length} casos
-                {ordenados.length > PAGE_SIZE &&
-                  ` · pág. ${paginaActual + 1}/${totalPaginas} (${inicio + 1}–${Math.min(inicio + PAGE_SIZE, ordenados.length)})`}
+                {aCarregar ? "A carregar…" : `${total} casos`}
+                {total > PAGE_SIZE &&
+                  ` · pág. ${paginaActual + 1}/${totalPaginas} (${inicio + 1}–${Math.min(inicio + PAGE_SIZE, total)})`}
               </p>
             </div>
             <button
@@ -228,7 +241,7 @@ export function CasoDrilldownModal({
               type="search"
               value={pesquisa}
               onChange={(e) => setPesquisa(e.target.value)}
-              placeholder="Pesquisa global: ID, estado, skill, responsável, observações…"
+              placeholder="Pesquisa global: ID, observações, loja…"
               className="w-full rounded-lg border border-white/10 bg-input px-3 py-2 text-xs text-white outline-none focus:border-brand/50"
             />
             {mensagem && (
@@ -272,14 +285,14 @@ export function CasoDrilldownModal({
                 </tr>
               </thead>
               <tbody>
-                {paginaCasos.map((c) => {
+                {casos.map((c) => {
                   const busy = aProcessar === c.caso_id;
                   return (
                     <tr
                       key={c.caso_id}
                       className={`border-b border-white/5 ${
                         c.prioridade_flash ? "bg-orange-500/5" : ""
-                      } ${busy ? "opacity-50" : ""}`}
+                      } ${busy || aCarregar ? "opacity-50" : ""}`}
                     >
                       <td className="p-1.5 font-semibold text-brand">
                         {c.id}
@@ -309,7 +322,7 @@ export function CasoDrilldownModal({
                           <option value="">— Sem skill —</option>
                           {equipas.map((eq) => (
                             <option key={eq.id} value={eq.id}>
-                              {eq.codigo || eq.nome}
+                              {eq.nome}
                             </option>
                           ))}
                         </select>
@@ -467,23 +480,22 @@ export function CasoDrilldownModal({
                 })}
               </tbody>
             </table>
-            {ordenados.length === 0 && (
+            {!aCarregar && casos.length === 0 && (
               <p className="py-8 text-center text-xs text-muted">
                 Nenhum caso nesta lista.
               </p>
             )}
           </div>
 
-          {ordenados.length > PAGE_SIZE && (
+          {total > PAGE_SIZE && (
             <footer className="flex shrink-0 items-center justify-between border-t border-white/10 px-4 py-2">
               <p className="text-[10px] text-muted">
-                A mostrar {inicio + 1}–{Math.min(inicio + PAGE_SIZE, ordenados.length)} de{" "}
-                {ordenados.length}
+                A mostrar {inicio + 1}–{Math.min(inicio + PAGE_SIZE, total)} de {total}
               </p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={paginaActual <= 0}
+                  disabled={paginaActual <= 0 || aCarregar}
                   onClick={() => setPagina((p) => Math.max(0, p - 1))}
                   className="rounded-lg border border-white/10 px-3 py-1 text-[10px] font-semibold text-muted transition hover:text-white disabled:opacity-40"
                 >
@@ -494,7 +506,7 @@ export function CasoDrilldownModal({
                 </span>
                 <button
                   type="button"
-                  disabled={paginaActual >= totalPaginas - 1}
+                  disabled={paginaActual >= totalPaginas - 1 || aCarregar}
                   onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))}
                   className="rounded-lg border border-white/10 px-3 py-1 text-[10px] font-semibold text-muted transition hover:text-white disabled:opacity-40"
                 >

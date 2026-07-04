@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PresencaStatus, RpcBaseResponse } from "@/lib/types/fila";
-import type { DadosSupervisaoResponse } from "@/lib/types/supervisao";
+import type {
+  DadosSupervisaoResponse,
+  DrillDownTipo,
+  DrilldownSupervisaoResponse,
+} from "@/lib/types/supervisao";
 
 const MSG_RPC_EM_FALTA =
   "RPC em falta no Supabase remoto. Aplica as migrations pendentes: supabase db push (ficheiros 20260703260000, 20260703261000 e 20260703262000 no SQL Editor se necessário).";
@@ -26,6 +30,7 @@ export async function obterDadosSupervisao(
   const { data, error } = await supabase.rpc("obter_dados_supervisao", {
     p_equipas_filtro:
       equipasFiltro && equipasFiltro.length > 0 ? equipasFiltro : null,
+    p_incluir_listas: false,
   });
 
   if (error) {
@@ -33,6 +38,38 @@ export async function obterDadosSupervisao(
   }
 
   return data as DadosSupervisaoResponse;
+}
+
+export async function obterCasosSupervisaoDrilldown(
+  supabase: SupabaseClient,
+  params: {
+    tipo: DrillDownTipo;
+    offset?: number;
+    limit?: number;
+    equipasFiltro?: string[];
+    pesquisa?: string;
+    sortCol?: string;
+    sortAsc?: boolean;
+  }
+): Promise<DrilldownSupervisaoResponse> {
+  const { data, error } = await supabase.rpc("obter_casos_supervisao_drilldown", {
+    p_tipo: params.tipo,
+    p_offset: params.offset ?? 0,
+    p_limit: params.limit ?? 100,
+    p_equipas_filtro:
+      params.equipasFiltro && params.equipasFiltro.length > 0
+        ? params.equipasFiltro
+        : null,
+    p_pesquisa: params.pesquisa?.trim() || null,
+    p_sort_col: params.sortCol ?? "id",
+    p_sort_asc: params.sortAsc ?? true,
+  });
+
+  if (error) {
+    return mapRpcError(error);
+  }
+
+  return data as DrilldownSupervisaoResponse;
 }
 
 export async function reatribuirCaso(

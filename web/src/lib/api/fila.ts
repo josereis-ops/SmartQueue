@@ -147,6 +147,40 @@ export async function atribuirTarefaEspecifica(
   return mapAtribuirResponse(data, equipaFallback);
 }
 
+export async function criarCasoManual(
+  supabase: SupabaseClient,
+  params: {
+    idExterno: string;
+    canal: string;
+    dataCriacao: string;
+    dataRqs: string;
+    equipaId: string;
+  }
+): Promise<AtribuirTarefaResponse> {
+  const { data, error } = await supabase.rpc("criar_caso_manual", {
+    p_id_externo: params.idExterno,
+    p_canal: params.canal,
+    p_data_criacao: params.dataCriacao,
+    p_data_rqs: params.dataRqs,
+    p_equipa_id: params.equipaId,
+  });
+
+  if (error) {
+    const rpcIndisponivel =
+      error.code === "PGRST202" ||
+      error.message.includes("criar_caso_manual") ||
+      error.message.includes("schema cache");
+    return {
+      sucesso: false,
+      mensagem: rpcIndisponivel
+        ? "RPC criar_caso_manual em falta. Aplica a migration 20260703430000 (supabase db push)."
+        : error.message,
+    };
+  }
+
+  return mapAtribuirResponse(data, "");
+}
+
 export async function obterMeusPendentes(
   supabase: SupabaseClient
 ): Promise<MeusPendentesResponse> {

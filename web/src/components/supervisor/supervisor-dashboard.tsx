@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { obterDadosSupervisao } from "@/lib/api/supervisao";
 import type { UtilizadorPerfil } from "@/lib/types/perfil";
@@ -17,7 +17,6 @@ import {
 import { atualizarPresenca } from "@/lib/api/fila";
 import type {
   AgenteSupervisao,
-  CasoSupervisao,
   DadosSupervisaoResponse,
   DrillDownTipo,
   FilaSupervisao,
@@ -78,28 +77,6 @@ const FILA_VAZIA: FilaSupervisao = {
   listaOutro: [],
 };
 
-function listaDrillDown(
-  fila: FilaSupervisao,
-  tipo: DrillDownTipo
-): CasoSupervisao[] {
-  switch (tipo) {
-    case "atrasados":
-      return fila.listaAtrasados;
-    case "ultrapassadas":
-      return fila.listaRqsUltrapassadas;
-    case "hoje":
-      return fila.listaRqsHoje;
-    case "livres":
-      return fila.listaLivres;
-    case "carteira":
-      return fila.listaTodos;
-    case "outro":
-      return fila.listaOutro;
-    default:
-      return [];
-  }
-}
-
 export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
   const supabase = createClient();
   const presencaInicial = parsePresencaStatus(perfil.presenca);
@@ -127,6 +104,8 @@ export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
   const [mostrarAdminAreas, setMostrarAdminAreas] = useState(() =>
     perfilTemAcessoAdmin(perfil)
   );
+  const [aSincronizar, setASincronizar] = useState(false);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void obterAcessoAdminAreas(supabase).then((res) => {
@@ -142,28 +121,41 @@ export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setACarregar(true);
-    const res = await obterDadosSupervisao(
-      supabase,
-      filtroEquipas.length > 0 ? filtroEquipas : undefined
-    );
-    if (!silencioso) setACarregar(false);
-    if (res.sucesso) {
-      setDados(res);
-      setErro("");
-      return;
-    }
-    if (!silencioso) {
-      setErro(
-        res.mensagem?.includes("obter_dados_supervisao")
-          ? "A RPC obter_dados_supervisao ainda não está no Supabase. Aplica as migrations pendentes: supabase db push (ou executa os ficheiros 20260703240000 e 20260703250000 no SQL Editor do dashboard)."
-          : (res.mensagem ?? "Erro ao carregar Sala de Controlo.")
+    else setASincronizar(true);
+    try {
+      const res = await obterDadosSupervisao(
+        supabase,
+        filtroEquipas.length > 0 ? filtroEquipas : undefined
       );
+      if (res.sucesso) {
+        setDados(res);
+        setErro("");
+        return;
+      }
+      if (!silencioso) {
+        setErro(
+          res.mensagem?.includes("obter_dados_supervisao")
+            ? "A RPC obter_dados_supervisao ainda não está no Supabase. Aplica as migrations pendentes: supabase db push (ou executa os ficheiros 20260703240000 e 20260703250000 no SQL Editor do dashboard)."
+            : (res.mensagem ?? "Erro ao carregar Sala de Controlo.")
+        );
+      }
+    } finally {
+      if (!silencioso) setACarregar(false);
+      else setASincronizar(false);
     }
   }, [supabase, filtroEquipas]);
 
   useEffect(() => {
     if (painel === "controlo") void carregar();
   }, [carregar, painel]);
+
+  const agendarRecarga = useCallback(() => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => {
+      reloadTimer.current = null;
+      void carregar(true);
+    }, 1200);
+  }, [carregar]);
 
   useEffect(() => {
     if (painel !== "controlo") return;
@@ -173,31 +165,27 @@ export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "casos" },
-        () => void carregar(true)
+        agendarRecarga
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "utilizadores" },
-        () => void carregar(true)
+        agendarRecarga
       )
       .subscribe();
 
-    const intervalo = setInterval(() => void carregar(true), 30000);
+    const intervalo = setInterval(() => void carregar(true), 60000);
 
     return () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
       supabase.removeChannel(canal);
       clearInterval(intervalo);
     };
-  }, [supabase, carregar, painel]);
+  }, [supabase, carregar, agendarRecarga, painel]);
 
   const fila = dados?.fila ?? FILA_VAZIA;
   const equipa = dados?.equipa ?? [];
   const equipasMaster = dados?.equipasMaster ?? [];
-
-  const casosDrillDown = useMemo(
-    () => (drillDown ? listaDrillDown(fila, drillDown.tipo) : []),
-    [drillDown, fila]
-  );
 
   const toggleEquipa = (id: string) => {
     setFiltroEquipas((prev) =>
@@ -279,7 +267,7 @@ export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
                 disabled={aCarregar}
                 className="rounded-xl border border-brand/30 bg-brand/10 px-4 py-2 text-xs font-bold text-brand transition hover:bg-brand/20 disabled:opacity-50"
               >
-                {aCarregar ? "A actualizar…" : "Actualizar"}
+                {aCarregar || aSincronizar ? "A actualizar…" : "Actualizar"}
               </button>
             )}
             <SignOutButton />
@@ -491,12 +479,13 @@ export function SupervisorDashboard({ perfil }: SupervisorDashboardProps) {
       <CasoDrilldownModal
         aberto={!!drillDown}
         titulo={drillDown?.titulo ?? ""}
-        casos={casosDrillDown}
+        tipo={drillDown?.tipo ?? null}
+        equipasFiltro={filtroEquipas}
         agentes={equipa}
         equipas={equipasMaster}
         supabase={supabase}
         onFechar={() => setDrillDown(null)}
-        onActualizado={() => void carregar()}
+        onActualizado={() => void carregar(true)}
       />
 
       <NudgeModal

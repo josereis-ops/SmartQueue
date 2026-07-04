@@ -16,7 +16,13 @@ import {
 } from "@/lib/types/fila";
 import type { AgenteSupervisao } from "@/lib/types/supervisao";
 
-function LiveTmt({ inicioMs }: { inicioMs: number | null }) {
+function LiveTmt({
+  inicioMs,
+  className = "text-[10px]",
+}: {
+  inicioMs: number | null;
+  className?: string;
+}) {
   const [seg, setSeg] = useState(0);
   useEffect(() => {
     if (!inicioMs) {
@@ -33,7 +39,7 @@ function LiveTmt({ inicioMs }: { inicioMs: number | null }) {
   const cor =
     seg >= 1800 ? "text-red-400" : seg >= 1200 ? "text-amber-400" : "text-emerald-400";
   return (
-    <span className={`font-mono text-[10px] font-bold tabular-nums ${cor}`}>
+    <span className={`font-mono font-bold tabular-nums ${className} ${cor}`}>
       {formatarTmt(seg)}
     </span>
   );
@@ -228,17 +234,27 @@ export function TeamGrid({
           ))}
         </select>
 
-        <div className="mt-1 flex items-center justify-between">
+        <div className="mt-1 flex items-center justify-between text-muted">
+          <span className="text-[9px] font-bold uppercase tracking-wide">Tempo estado</span>
           <LiveEstadoTimer inicioMs={agente.horaMudanca} />
-          {hasCaso && (
-            <div className="flex items-center gap-1 rounded bg-brand/10 px-1.5 py-0.5">
-              <span className="font-mono text-[9px] font-bold text-brand">
+        </div>
+
+        {hasCaso && (
+          <div className="mt-1.5 rounded-md border border-brand/35 bg-brand/15 px-2 py-1.5">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-brand">
+              Caso activo
+            </p>
+            <div className="mt-0.5 flex items-center justify-between gap-2">
+              <span
+                className="truncate font-mono text-xs font-bold text-white"
+                title={agente.casoAtivoId ?? undefined}
+              >
                 {agente.casoAtivoId}
               </span>
-              <LiveTmt inicioMs={agente.casoAtivoTs} />
+              <LiveTmt inicioMs={agente.casoAtivoTs} className="shrink-0 text-sm" />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="mt-1.5 flex justify-between border-t border-white/5 pt-1 text-[9px] text-muted">
           <span>

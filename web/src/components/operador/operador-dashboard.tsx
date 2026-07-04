@@ -11,11 +11,9 @@ import { createClient } from "@/lib/supabase/client";
 import {
 
   atribuirTarefa,
-  atribuirTarefaEspecifica,
   ativarAtendimentoLojaFlash,
   atualizarPresenca,
   marcarIntercalarCaso,
-  obterMeusPendentes,
   obterPresencaActual,
   recuperarCasoEmTratamento,
 } from "@/lib/api/fila";
@@ -23,13 +21,8 @@ import {
 import type { UtilizadorPerfil } from "@/lib/types/perfil";
 
 import type {
-
-  PendenteItem,
-
   PresencaStatus,
-
   TarefaAtribuida,
-
 } from "@/lib/types/fila";
 
 import {
@@ -49,6 +42,10 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 
 import { TaskActionPanel } from "@/components/operador/task-action-panel";
+import {
+  OperadorManualPanel,
+  type EcraManual,
+} from "@/components/operador/operador-manual-panel";
 
 import { TmtTimer } from "@/components/operador/tmt-timer";
 
@@ -119,11 +116,7 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
   const [marcandoIntercalar, setMarcandoIntercalar] = useState(false);
   const [modalIntercalar, setModalIntercalar] = useState(false);
   const [flashEmCurso, setFlashEmCurso] = useState(false);
-
-  const [pendentes, setPendentes] = useState<PendenteItem[]>([]);
-
-  const [mostrarPendentes, setMostrarPendentes] = useState(false);
-
+  const [ecraManual, setEcraManual] = useState<EcraManual>("principal");
   const [nudge, setNudge] = useState<NudgeAtivo | null>(null);
 
   const pedirEmCurso = useRef(false);
@@ -229,15 +222,21 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
 
 
       if (res.codigo_erro === "SQ_SEM_ELEGIVEIS") {
-
         if (!silencioso) {
-
-          mostrarInfo("Sem tarefas disponíveis para o teu perfil.");
-
+          const skills = res.diag?.skills_operador;
+          const loja = res.diag?.filtro_loja_ativo;
+          const extra =
+            skills !== undefined || loja !== undefined
+              ? ` (${[
+                  skills !== undefined ? `${skills} skill(s)` : null,
+                  loja !== undefined ? `filtro loja ${loja ? "ON" : "OFF"}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")})`
+              : "";
+          mostrarInfo(`Sem tarefas disponíveis para o teu perfil.${extra}`);
         }
-
         return;
-
       }
 
 
@@ -256,47 +255,10 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
 
 
 
-  const [aTratarPendente, setATratarPendente] = useState<string | null>(null);
-
-  const tratarPendente = async (idExterno: string) => {
-    if (tarefaRef.current) {
-      if (
-        !window.confirm(
-          "Já tens um caso activo. Substituir pelo pendente seleccionado?"
-        )
-      ) {
-        return;
-      }
-    }
-
-    setATratarPendente(idExterno);
-    setACarregar(true);
-    const res = await atribuirTarefaEspecifica(supabase, idExterno, perfil.equipa);
-    setATratarPendente(null);
-    setACarregar(false);
-
-    if (res.sucesso && res.tarefa) {
-      aplicarTarefa(res.tarefa);
-      setMostrarPendentes(false);
-      return;
-    }
-
-    mostrarErro(res.mensagem ?? "Não foi possível tratar o caso.");
+  const mudarEcraManual = (ecra: EcraManual) => {
+    setEcraManual(ecra);
+    setMensagem("");
   };
-
-  const carregarPendentes = useCallback(async () => {
-
-    const res = await obterMeusPendentes(supabase);
-
-    if (res.sucesso && res.dados) {
-
-      setPendentes(res.dados);
-
-    }
-
-  }, [supabase]);
-
-
 
   const confirmarIntercalar = async () => {
 
@@ -382,9 +344,13 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
     aplicarPresenca(nova);
     setMensagem("");
 
-    const gridPendentes = nova === "pausa" || nova === "trabalho_manual";
-    setMostrarPendentes(gridPendentes);
-    if (gridPendentes) void carregarPendentes();
+    if (nova === "trabalho_manual") {
+      setEcraManual("trabalho");
+    } else if (nova === "pausa") {
+      setEcraManual("trabalho");
+    } else if (nova === "disponivel") {
+      setEcraManual("principal");
+    }
 
     if (!presencaMantemCasoAtivo(nova) && (tarefaRef.current || (res.casos_suspensos ?? 0) > 0)) {
       setTarefa(null);
@@ -403,8 +369,6 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
     setTarefa(null);
 
     setInicioTratamento(null);
-
-    void carregarPendentes();
 
     if (presencaRef.current === "disponivel") {
 
@@ -433,8 +397,7 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
       aplicarPresenca(efectiva);
 
       if (efectiva === "pausa" || efectiva === "trabalho_manual") {
-        setMostrarPendentes(true);
-        void carregarPendentes();
+        setEcraManual("trabalho");
       }
 
       if (!presencaMantemCasoAtivo(efectiva)) {
@@ -456,7 +419,7 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
         void executarAtribuicao(true);
       }
     })();
-  }, [supabase, perfil.id, perfil.equipa, perfil.presenca, aplicarPresenca, aplicarTarefa, carregarPendentes, executarAtribuicao]);
+  }, [supabase, perfil.id, perfil.equipa, perfil.presenca, aplicarPresenca, aplicarTarefa, executarAtribuicao]);
 
 
 
@@ -477,14 +440,6 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
     };
 
   }, [presenca, tarefa, executarAtribuicao]);
-
-
-
-  useEffect(() => {
-
-    void carregarPendentes();
-
-  }, [carregarPendentes]);
 
 
 
@@ -690,6 +645,47 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
               );
             })}
           </div>
+          <p className="mt-2 border-t border-white/10 pt-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+            Ferramentas
+          </p>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => mudarEcraManual("principal")}
+              className={`rounded-lg px-3 py-2 text-left text-xs font-semibold transition hover:bg-white/10 hover:text-white ${
+                ecraManual === "principal"
+                  ? "bg-brand/15 text-brand ring-1 ring-brand/30"
+                  : "text-muted"
+              }`}
+            >
+              🏠 Principal
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (presenca !== "trabalho_manual") void mudarPresenca("trabalho_manual");
+                else mudarEcraManual("trabalho");
+              }}
+              className={`rounded-lg px-3 py-2 text-left text-xs font-semibold transition hover:bg-white/10 hover:text-white ${
+                ecraManual === "trabalho"
+                  ? "bg-brand/15 text-brand ring-1 ring-brand/30"
+                  : "text-muted"
+              }`}
+            >
+              ⏳ Trabalho manual
+            </button>
+            <button
+              type="button"
+              onClick={() => mudarEcraManual("criar")}
+              className={`rounded-lg px-3 py-2 text-left text-xs font-semibold transition hover:bg-white/10 hover:text-white ${
+                ecraManual === "criar"
+                  ? "bg-purple-500/15 text-purple-300 ring-1 ring-purple-500/30"
+                  : "text-muted"
+              }`}
+            >
+              ➕ Criar caso
+            </button>
+          </div>
           <p className="mt-2 border-t border-white/10 pt-2 text-[10px] text-muted">
             Offline e outros estados no selector do topo.
           </p>
@@ -721,7 +717,21 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
 
 
 
-        {tarefa ? (
+        {ecraManual !== "principal" ? (
+          <OperadorManualPanel
+            ecra={ecraManual}
+            supabase={supabase}
+            userId={perfil.id}
+            equipaId={perfil.equipa_id}
+            equipaFallback={perfil.equipa}
+            aCarregar={aCarregar}
+            temCasoActivo={!!tarefa}
+            onEcra={mudarEcraManual}
+            onTarefa={(nova) => aplicarTarefa(nova)}
+            onErro={mostrarErro}
+            onLoading={setACarregar}
+          />
+        ) : tarefa ? (
 
           <article className="glass-card overflow-hidden rounded-2xl border border-white/10 shadow-card">
 
@@ -1020,7 +1030,7 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
                 <strong className="text-white">{PRESENCA_LABELS[presenca]}</strong>
                 {" — "}
                 {presenca === "trabalho_manual"
-                  ? "podes tratar casos pendentes abaixo."
+                  ? "usa a ferramenta Trabalho manual na barra lateral."
                   : "não recebes tarefas automáticas. Muda para Disponível para voltar à fila."}
               </p>
             )}
@@ -1028,162 +1038,6 @@ export function OperadorDashboard({ perfil }: OperadorDashboardProps) {
           </section>
 
         )}
-
-
-
-        <section className="glass-card rounded-2xl border border-white/10 p-5 shadow-card">
-
-          <div className="mb-3 flex items-center justify-between">
-
-            <h3 className="text-sm font-bold text-white">Meus pendentes</h3>
-
-            <button
-
-              type="button"
-
-              onClick={() => {
-
-                setMostrarPendentes((v) => !v);
-
-                if (!mostrarPendentes) carregarPendentes();
-
-              }}
-
-              className="text-xs font-semibold text-brand hover:underline"
-
-            >
-
-              {mostrarPendentes ? "Ocultar" : "Mostrar grelha"}
-
-            </button>
-
-          </div>
-
-
-
-          {mostrarPendentes && (
-
-            <div className="overflow-x-auto rounded-xl bg-input/40">
-
-              {pendentes.length === 0 ? (
-
-                <p className="py-6 text-center text-sm text-emerald-400">
-
-                  Não tens casos pendentes neste momento.
-
-                </p>
-
-              ) : (
-
-                <table className="w-full text-left text-xs">
-
-                  <thead>
-
-                    <tr className="border-b border-white/10 text-muted">
-
-                      <th className="p-3">ID</th>
-
-                      <th className="p-3">Estado</th>
-
-                      <th className="p-3">RQS</th>
-
-                      <th className="p-3">Agendamento</th>
-
-                      <th className="p-3">Obs</th>
-
-                      <th className="p-3 text-center">Acção</th>
-
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-
-                    {pendentes.map((c) => (
-
-                      <tr
-
-                        key={c.id}
-
-                        className={`border-b border-white/5 ${
-
-                          c.isRqsAtrasada && !c.hasIntercalar
-
-                            ? "border-l-4 border-l-red-500 bg-red-500/10"
-
-                            : c.hasIntercalar
-
-                              ? "border-l-4 border-l-emerald-500 bg-emerald-500/5"
-
-                              : ""
-
-                        }`}
-
-                      >
-
-                        <td className="p-3 font-medium">
-
-                          {c.id}
-
-                          {c.isRqsAtrasada && !c.hasIntercalar ? " ⚠️" : ""}
-
-                          {c.hasIntercalar ? " ✔️" : ""}
-
-                        </td>
-
-                        <td className="p-3">{c.estado}</td>
-
-                        <td className="p-3">{c.rqs}</td>
-
-                        <td className="p-3">{c.agendamento}</td>
-
-                        <td
-
-                          className="max-w-[160px] truncate p-3"
-
-                          title={c.obsCompleta}
-
-                        >
-
-                          {c.obsTruncada}
-
-                        </td>
-
-                        <td className="p-3 text-center">
-
-                          <button
-
-                            type="button"
-
-                            onClick={() => void tratarPendente(c.id)}
-
-                            disabled={aCarregar || aTratarPendente === c.id}
-
-                            className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
-
-                          >
-
-                            {aTratarPendente === c.id ? "…" : "Tratar"}
-
-                          </button>
-
-                        </td>
-
-                      </tr>
-
-                    ))}
-
-                  </tbody>
-
-                </table>
-
-              )}
-
-            </div>
-
-          )}
-
-        </section>
 
         </main>
       </div>

@@ -11,12 +11,18 @@ export interface TarefaAtribuida {
   prioridade_flash: boolean;
 }
 
+export interface AtribuirTarefaDiag {
+  skills_operador?: number;
+  filtro_loja_ativo?: boolean;
+}
+
 export interface AtribuirTarefaResponse {
   sucesso: boolean;
   mensagem?: string;
   codigo_erro?: string;
   recuperacao?: boolean;
   tarefa?: TarefaAtribuida;
+  diag?: AtribuirTarefaDiag;
 }
 
 export interface PendenteItem {

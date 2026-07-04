@@ -83,3 +83,10 @@ export type DrillDownTipo =
   | "livres"
   | "carteira"
   | "outro";
+
+export interface DrilldownSupervisaoResponse extends RpcBaseResponse {
+  total?: number;
+  offset?: number;
+  limit?: number;
+  casos?: CasoSupervisao[];
+}

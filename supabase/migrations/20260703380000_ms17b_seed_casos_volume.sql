@@ -1,5 +1,5 @@
 -- MS-17b: volume demo — até 1000 casos na área SU Eletricidade para testar grelha / performance UI
--- Usa equipas reais da área (não UUIDs fixos do seed MS-06).
+-- Skills: alternância Producao / Consumo (alinhado com colaboradores demo).
 
 DO $$
 DECLARE
@@ -7,22 +7,26 @@ DECLARE
   v_max_num   INT;
   v_target    INT := 1000;
   v_added     INT;
-  v_equipas   UUID[];
-  v_n_equipas INT;
+  v_s_prod    UUID;
+  v_s_cons    UUID;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.areas WHERE id = v_area_id) THEN
     RAISE NOTICE 'MS-17b: área demo não existe — seed ignorado.';
     RETURN;
   END IF;
 
-  SELECT array_agg(e.id ORDER BY e.nome)
-  INTO v_equipas
+  SELECT e.id INTO v_s_prod
   FROM public.equipas e
-  WHERE e.area_id = v_area_id AND e.ativo = true;
+  WHERE e.area_id = v_area_id AND e.nome = 'Producao' AND e.ativo = true
+  LIMIT 1;
 
-  v_n_equipas := COALESCE(array_length(v_equipas, 1), 0);
-  IF v_n_equipas = 0 THEN
-    RAISE NOTICE 'MS-17b: sem equipas activas na área — seed ignorado.';
+  SELECT e.id INTO v_s_cons
+  FROM public.equipas e
+  WHERE e.area_id = v_area_id AND e.nome = 'Consumo' AND e.ativo = true
+  LIMIT 1;
+
+  IF v_s_prod IS NULL OR v_s_cons IS NULL THEN
+    RAISE NOTICE 'MS-17b: skills Producao/Consumo não encontradas — seed ignorado.';
     RETURN;
   END IF;
 
@@ -45,7 +49,7 @@ BEGIN
   )
   SELECT
     v_area_id,
-    v_equipas[1 + (g % v_n_equipas)],
+    CASE WHEN g % 2 = 0 THEN v_s_prod ELSE v_s_cons END,
     NULL,
     'SU-26-' || lpad(g::text, 5, '0'),
     CASE
