@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" fill="none" role="img" aria-label="Randstad">
+  <circle cx="24" cy="24" r="22" fill="#2175D9"/>
+  <path fill="#fff" d="M14 14h12c5.5 0 9 3.2 9 7.8 0 3.4-1.8 5.8-4.8 6.8L36 34h-6.2l-4.8-7.2H18V34h-4V14zm4 4v7.2h7.2c2.8 0 4.4-1.4 4.4-3.6S28 18 25.2 18H18z"/>
+  <text x="54" y="32" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700" fill="#2175D9">randstad</text>
+</svg>

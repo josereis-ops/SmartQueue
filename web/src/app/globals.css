@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --randstad-navy: #0f1941;
+  --randstad-blue: #2175d9;
+  --randstad-blue-hover: #1a5eb1;
+  --fundo-card: #0b122e;
+  --fundo-input: #162454;
+  --brand: var(--randstad-blue);
+  --brand-hover: var(--randstad-blue-hover);
+  --gray-light: #e5e7eb;
+  --gray-mid: #9ca3af;
+  --background: var(--randstad-navy);
+  --foreground: #f3f4f6;
+  --card: var(--fundo-card);
+  --sucesso: #10b981;
+  --alerta-amarelo: #f59e0b;
+  --alerta-vermelho: #ef4444;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass-card {
+    background: linear-gradient(
+      145deg,
+      rgba(11, 18, 46, 0.95) 0%,
+      rgba(15, 25, 65, 0.85) 100%
+    );
+    backdrop-filter: blur(12px);
+  }
+}

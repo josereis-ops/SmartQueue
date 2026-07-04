@@ -1,0 +1,13 @@
+{
+  "name": "smart-queue",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix web",
+    "dev:clean": "npm run dev:clean --prefix web",
+    "clean:next": "npm run clean:next --prefix web",
+    "build": "npm run build --prefix web",
+    "start": "npm run start --prefix web",
+    "start:prod": "npm run start:prod --prefix web",
+    "lint": "npm run lint --prefix web"
+  }
+}
