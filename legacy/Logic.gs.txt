@@ -28,6 +28,10 @@ var LOG_ESTADO_CURSOR_PREFIX = 'sq_lec1_';
 /** Se não existir cursor, varre só as últimas N linhas (fallback legacy). */
 var LOG_ESTADO_LEGACY_SCAN_MAX = 2500;
 
+/** Suspensos fantasma: TMT máximo (seg) sem obs substantivas antes do retido. */
+var FANTASMA_TMT_MAX_SEG = 90;
+var FANTASMA_MARCA_RETIDO = "Retido para o operador";
+
 // Singleton do ficheiro ATIVO (SPREADSHEET_ID): uma abertura por pedido /exec ou execução de menu.
 var _ssCache = null;
 
@@ -722,6 +726,136 @@ function _suspenderProcessarSegmentoLinhas_(sheetDist, r0, r1, emailLimpo, mapaE
     sheetDist.getRange(r0, 1, n, 15).setValues(block);
   }
   return alterou;
+}
+
+// --- MS-23: Libertar suspensos fantasma em background (não corre em pedirNovaTarefa) ---
+
+/** Texto abaixo do bloco auto «Retido para o operador» = tratamento (ex. justificação Pendente/Agendado). */
+function _obsSubstantivasAntesRetido_(obsText) {
+  var t = (obsText || "").toString().trim();
+  if (t === "") return false;
+  var sep = t.indexOf("\n\n");
+  if (sep < 0) return false;
+  return t.substring(sep + 2).trim() !== "";
+}
+
+/** Mapa idCaso → diffS da última linha Suspenso no Log_Performance. */
+function _mapaTmtSuspensaoLog_(sheetLog) {
+  var mapa = {};
+  if (!sheetLog) return mapa;
+  var lr = sheetLog.getLastRow();
+  if (lr < 2) return mapa;
+  var data = sheetLog.getRange(2, 1, lr - 1, 7).getValues();
+  for (var i = 0; i < data.length; i++) {
+    var acao = data[i][4] ? data[i][4].toString().trim() : "";
+    if (acao !== "Suspenso") continue;
+    var id = _normIdCaso_(data[i][0]);
+    if (!id) continue;
+    var diffS = parseInt(data[i][6], 10);
+    if (isNaN(diffS) || diffS < 0) diffS = 0;
+    mapa[id] = diffS;
+  }
+  return mapa;
+}
+
+/**
+ * Job background (trigger 5 min): libertar suspensos sem tratamento efectivo.
+ * Fantasma = sem obs antes do retido E TMT < FANTASMA_TMT_MAX_SEG no log de suspensão.
+ */
+function libertarSuspensosFantasmaBackground() {
+  var startTsHealth = new Date().getTime();
+  var lock = LockService.getScriptLock();
+  var libertados = 0;
+  var ids = [];
+  try {
+    lock.waitLock(30000);
+    var ss = getSpreadsheet();
+    var sheetDist = ss.getSheetByName(ABA_DISTRIBUICAO);
+    if (!sheetDist) {
+      return { sucesso: false, mensagem: "Aba Distribuição não encontrada.", libertados: 0 };
+    }
+    var lr = sheetDist.getLastRow();
+    if (lr < 2) {
+      return { sucesso: true, mensagem: "Sem linhas.", libertados: 0, ids: [] };
+    }
+
+    var mapaTmt = _mapaTmtSuspensaoLog_(ss.getSheetByName(ABA_LOG));
+    var bloco = sheetDist.getRange(2, 1, lr - 1, 15).getValues();
+    var alterou = false;
+    var carimbo = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM HH:mm");
+    var notaLiberta = "[Auto] Libertado — suspensão fantasma (job background).";
+
+    for (var r = 0; r < bloco.length; r++) {
+      var row = bloco[r];
+      var estado = row[9] ? row[9].toString().trim() : "";
+      var responsavel = row[10] ? row[10].toString().toLowerCase().trim() : "";
+      if (estado !== "Suspenso" || responsavel === "") continue;
+
+      if (_obsSubstantivasAntesRetido_(row[8])) continue;
+
+      var idCaso = _normIdCaso_(row[1]);
+      var diffS = mapaTmt.hasOwnProperty(idCaso) ? mapaTmt[idCaso] : null;
+      if (diffS === null || diffS >= FANTASMA_TMT_MAX_SEG) continue;
+
+      var userAbrev = responsavel.split("@")[0];
+      var novaEntrada = "[" + carimbo + " - " + userAbrev + "]\n" + notaLiberta;
+      var obsAntigas = row[8] ? row[8].toString().trim() : "";
+      row[0] = "";
+      row[8] = obsAntigas === "" ? novaEntrada : novaEntrada + "\n\n" + obsAntigas;
+      row[9] = "Livre";
+      row[10] = "";
+      row[11] = "";
+      alterou = true;
+      libertados++;
+      ids.push(idCaso);
+    }
+
+    if (alterou) {
+      sheetDist.getRange(2, 1, bloco.length, 15).setValues(bloco);
+      SpreadsheetApp.flush();
+    }
+
+    return {
+      sucesso: true,
+      mensagem: libertados > 0
+        ? libertados + " caso(s) fantasma libertado(s)."
+        : "Nenhum suspenso fantasma encontrado.",
+      libertados: libertados,
+      ids: ids
+    };
+  } catch (e) {
+    return { sucesso: false, mensagem: e.message, libertados: libertados, ids: ids };
+  } finally {
+    try { lock.releaseLock(); } catch (_e) {}
+    if (typeof logAcaoHealthCheck === "function") {
+      logAcaoHealthCheck("libertarSuspensosFantasmaBackground", new Date().getTime() - startTsHealth);
+    }
+  }
+}
+
+/** Cria trigger de 5 em 5 min para libertarSuspensosFantasmaBackground. */
+function configurarTriggerLibertarSuspensosFantasma() {
+  var alvo = "libertarSuspensosFantasmaBackground";
+  var triggers = ScriptApp.getProjectTriggers();
+  var jaExiste = false;
+
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === alvo) {
+      jaExiste = true;
+      break;
+    }
+  }
+
+  if (!jaExiste) {
+    ScriptApp.newTrigger(alvo).timeBased().everyMinutes(5).create();
+  }
+
+  return {
+    sucesso: true,
+    mensagem: jaExiste ? "Trigger fantasma já existia." : "Trigger fantasma criado (5 min).",
+    handler: alvo,
+    frequencia: "5 minutos"
+  };
 }
 
 // --- ALGORITMO OPERACIONAL ---

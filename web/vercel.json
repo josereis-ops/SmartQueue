@@ -1,13 +1,6 @@
-{
-  "framework": "nextjs",
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "crons": [
-    {
-      "path": "/api/cron/import-evalyze",
-      "schedule": "0 * * * *"
-    }
-  ]
-}
-
+{
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev"
+}

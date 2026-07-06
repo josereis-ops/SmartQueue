@@ -124,6 +124,28 @@ export async function obterStatusImportEvalyze(
   return data as StatusImportEvalyzeResponse;
 }
 
+/** Import Evalyze via Edge Function (manual + cron no Supabase). */
+export async function executarImportEvalyze(
+  supabase: SupabaseClient
+): Promise<ImportEvalyzeResponse> {
+  const { data, error } = await supabase.functions.invoke("import-evalyze", {
+    method: "POST",
+    body: {},
+  });
+
+  if (error) {
+    return {
+      sucesso: false,
+      mensagem: error.message,
+      importados: 0,
+      duplicados: 0,
+      ignoradosCampos: 0,
+    };
+  }
+
+  return data as ImportEvalyzeResponse;
+}
+
 export async function obterNudgeMensagens(
   supabase: SupabaseClient
 ): Promise<NudgeMensagensResponse> {

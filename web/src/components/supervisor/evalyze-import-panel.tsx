@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  executarImportEvalyze,
   obterStatusImportEvalyze,
 } from "@/lib/api/gestor";
 import type { ImportEvalyzeResponse, StatusImportEvalyzeResponse } from "@/lib/types/gestor";
@@ -50,8 +51,7 @@ export function EvalyzeImportPanel({ supabase }: EvalyzeImportPanelProps) {
     setResultado(null);
 
     try {
-      const res = await fetch("/api/import-evalyze", { method: "POST" });
-      const data = (await res.json()) as ImportEvalyzeResponse;
+      const data = await executarImportEvalyze(supabase);
       setResultado(data);
       if (!data.sucesso) {
         setErro(data.mensagem ?? "Erro na importacao.");
@@ -80,7 +80,7 @@ export function EvalyzeImportPanel({ supabase }: EvalyzeImportPanelProps) {
         <p className="mt-1 text-xs text-muted">
           Carrega casos novos do Relatorio Smart Queue para a fila. Duplicados
           ignorados (ID + Contacto Aux). Linhas incompletas sao saltadas.
-          Em producao, o cron Vercel executa automaticamente de hora a hora.
+          Em producao, o pg_cron no Supabase executa automaticamente de hora a hora.
         </p>
       </div>
 
