@@ -55,6 +55,8 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
   const [formEquipa, setFormEquipa] = useState("");
   const [formPerfil, setFormPerfil] = useState(PERFIS_DEFAULT);
   const [formSupervisor, setFormSupervisor] = useState("");
+  const [formExibirCard, setFormExibirCard] = useState(true);
+  const [formResponsavelEquipa, setFormResponsavelEquipa] = useState(false);
   const [aGravar, setAGravar] = useState(false);
 
   const [listaNome, setListaNome] = useState("");
@@ -91,7 +93,7 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
   );
 
   const supervisoresEquipa = useMemo(
-    () => utilizadores.filter((u) => u.perfil_slug === "supervisor"),
+    () => utilizadores.filter((u) => u.e_responsavel_equipa),
     [utilizadores]
   );
 
@@ -118,6 +120,16 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
     [utilizadores, pesquisa]
   );
 
+  const defaultsPorPerfil = (slug: string) => {
+    if (slug === "colaborador") {
+      return { exibirCard: true, responsavel: false };
+    }
+    if (slug === "supervisor") {
+      return { exibirCard: true, responsavel: true };
+    }
+    return { exibirCard: false, responsavel: false };
+  };
+
   const abrirModalUtilizador = (user?: UtilizadorEquipa) => {
     if (user) {
       setEmailOriginal(user.email);
@@ -127,7 +139,10 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       setFormEquipa(user.equipa_id);
       setFormPerfil(user.perfil_id ?? PERFIS_DEFAULT);
       setFormSupervisor(user.supervisor_id ?? "");
+      setFormExibirCard(user.exibir_card_sala);
+      setFormResponsavelEquipa(user.e_responsavel_equipa);
     } else {
+      const defs = defaultsPorPerfil("colaborador");
       setEmailOriginal("");
       setFormEmail("");
       setFormNome("");
@@ -135,6 +150,8 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       setFormEquipa(skillsActivas[0]?.id ?? "");
       setFormPerfil(PERFIS_DEFAULT);
       setFormSupervisor("");
+      setFormExibirCard(defs.exibirCard);
+      setFormResponsavelEquipa(defs.responsavel);
     }
     setModalUser(true);
     setMsg("");
@@ -153,6 +170,9 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       perfilId: formPerfil || null,
       supervisorId:
         perfilSlugActual === "colaborador" ? formSupervisor || null : null,
+      exibirCardSala: formExibirCard,
+      eResponsavelEquipa:
+        perfilSlugActual === "colaborador" ? false : formResponsavelEquipa,
     });
     setAGravar(false);
     if (res.sucesso) {
@@ -525,7 +545,18 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                 </label>
                 <select
                   value={formPerfil}
-                  onChange={(e) => setFormPerfil(e.target.value)}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setFormPerfil(id);
+                    const slug =
+                      perfis.find((p) => p.id === id)?.slug ?? "colaborador";
+                    const defs = defaultsPorPerfil(slug);
+                    setFormExibirCard(defs.exibirCard);
+                    setFormResponsavelEquipa(defs.responsavel);
+                    if (slug === "colaborador") {
+                      setFormSupervisor("");
+                    }
+                  }}
                   className="w-full rounded-lg border border-white/10 bg-input px-3 py-2 text-sm text-white outline-none"
                 >
                   {perfis.map((p) => (
@@ -536,6 +567,44 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                 </select>
               </div>
             </div>
+            <div className="mb-3 space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
+              <label className="flex cursor-pointer items-start gap-2 text-xs text-white">
+                <input
+                  type="checkbox"
+                  checked={formExibirCard}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setFormExibirCard(checked);
+                    if (!checked) setFormResponsavelEquipa(false);
+                  }}
+                  className="mt-0.5"
+                />
+                <span>
+                  <strong>Aparecer na Sala de Controlo</strong>
+                  <span className="mt-0.5 block text-[10px] text-muted">
+                    Card visível na grelha operacional (útil para developer que
+                    também opera).
+                  </span>
+                </span>
+              </label>
+              {perfilSlugActual !== "colaborador" && formExibirCard && (
+                <label className="flex cursor-pointer items-start gap-2 text-xs text-white">
+                  <input
+                    type="checkbox"
+                    checked={formResponsavelEquipa}
+                    onChange={(e) => setFormResponsavelEquipa(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <strong>Responsável de equipa (secção 👑)</strong>
+                    <span className="mt-0.5 block text-[10px] text-muted">
+                      Aparece na secção Supervisão e pode ser atribuído a
+                      colaboradores.
+                    </span>
+                  </span>
+                </label>
+              )}
+            </div>
             {perfilSlugActual === "colaborador" && (
               <>
                 <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
@@ -544,15 +613,24 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                 <select
                   value={formSupervisor}
                   onChange={(e) => setFormSupervisor(e.target.value)}
-                  className="mb-3 w-full rounded-lg border border-white/10 bg-input px-3 py-2 text-sm text-white outline-none"
+                  className="mb-1 w-full rounded-lg border border-white/10 bg-input px-3 py-2 text-sm text-white outline-none"
                 >
                   <option value="">— Nenhum (fallback skill) —</option>
                   {supervisoresEquipa.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.nome}
+                      {s.perfil_slug !== "supervisor"
+                        ? ` (${s.perfil_nome})`
+                        : ""}
                     </option>
                   ))}
                 </select>
+                {supervisoresEquipa.length === 0 && (
+                  <p className="mb-3 text-[10px] text-amber-200">
+                    Nenhum responsável disponível. Edita um utilizador (ex.: tu)
+                    e marca «Responsável de equipa (secção 👑)».
+                  </p>
+                )}
               </>
             )}
             <p className="mb-3 text-[10px] text-muted">

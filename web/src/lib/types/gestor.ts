@@ -93,6 +93,8 @@ export interface UtilizadorEquipa {
   tem_auth: boolean;
   supervisor_id: string | null;
   supervisor_nome: string | null;
+  exibir_card_sala: boolean;
+  e_responsavel_equipa: boolean;
 }
 
 export interface PermissoesGestaoEquipa {

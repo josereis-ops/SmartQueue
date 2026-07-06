@@ -161,6 +161,8 @@ export async function guardarUtilizador(
     equipaId: string;
     perfilId: string | null;
     supervisorId?: string | null;
+    exibirCardSala?: boolean;
+    eResponsavelEquipa?: boolean;
   }
 ): Promise<RpcBaseResponse> {
   const { data, error } = await supabase.rpc("guardar_utilizador", {
@@ -171,6 +173,8 @@ export async function guardarUtilizador(
     p_equipa_id: dados.equipaId,
     p_perfil_id: dados.perfilId || null,
     p_supervisor_id: dados.supervisorId || null,
+    p_exibir_card_sala: dados.exibirCardSala ?? null,
+    p_e_responsavel_equipa: dados.eResponsavelEquipa ?? null,
   });
   if (error) return mapRpcError(error);
   return data as RpcBaseResponse;
