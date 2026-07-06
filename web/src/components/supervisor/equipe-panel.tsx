@@ -54,6 +54,7 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
   const [formPonto, setFormPonto] = useState("");
   const [formEquipa, setFormEquipa] = useState("");
   const [formPerfil, setFormPerfil] = useState(PERFIS_DEFAULT);
+  const [formSupervisor, setFormSupervisor] = useState("");
   const [aGravar, setAGravar] = useState(false);
 
   const [listaNome, setListaNome] = useState("");
@@ -89,6 +90,16 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
     [skills]
   );
 
+  const supervisoresEquipa = useMemo(
+    () => utilizadores.filter((u) => u.perfil_slug === "supervisor"),
+    [utilizadores]
+  );
+
+  const perfilSlugActual = useMemo(
+    () => perfis.find((p) => p.id === formPerfil)?.slug ?? "colaborador",
+    [perfis, formPerfil]
+  );
+
   const filtrar = (texto: string) => {
     const q = pesquisa.toLowerCase();
     return texto.toLowerCase().includes(q);
@@ -115,6 +126,7 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       setFormPonto(user.ponto_atendimento_id ?? "");
       setFormEquipa(user.equipa_id);
       setFormPerfil(user.perfil_id ?? PERFIS_DEFAULT);
+      setFormSupervisor(user.supervisor_id ?? "");
     } else {
       setEmailOriginal("");
       setFormEmail("");
@@ -122,6 +134,7 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       setFormPonto(pontosActivos[0]?.id ?? "");
       setFormEquipa(skillsActivas[0]?.id ?? "");
       setFormPerfil(PERFIS_DEFAULT);
+      setFormSupervisor("");
     }
     setModalUser(true);
     setMsg("");
@@ -138,6 +151,8 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
       pontoId: formPonto || null,
       equipaId: formEquipa,
       perfilId: formPerfil || null,
+      supervisorId:
+        perfilSlugActual === "colaborador" ? formSupervisor || null : null,
     });
     setAGravar(false);
     if (res.sucesso) {
@@ -266,6 +281,7 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                 <th className="px-3 py-2">Nome</th>
                 <th className="px-3 py-2">Ponto</th>
                 <th className="px-3 py-2">Skill prim.</th>
+                <th className="px-3 py-2">Resp. equipa</th>
                 <th className="px-3 py-2">Perfil</th>
                 {permissoes?.gerir_utilizadores && (
                   <th className="px-3 py-2 text-center">Acções</th>
@@ -284,6 +300,9 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                     {u.ponto_nome ?? "—"}
                   </td>
                   <td className="px-3 py-2">{u.equipa_nome}</td>
+                  <td className="px-3 py-2 text-muted">
+                    {u.supervisor_nome ?? "—"}
+                  </td>
                   <td className="px-3 py-2">{u.perfil_nome}</td>
                   {permissoes?.gerir_utilizadores && (
                     <td className="px-3 py-2 text-center">
@@ -517,6 +536,25 @@ export function EquipePanel({ supabase, onAbrirAdminRegras }: EquipePanelProps) 
                 </select>
               </div>
             </div>
+            {perfilSlugActual === "colaborador" && (
+              <>
+                <label className="mb-1 block text-[10px] font-bold uppercase text-muted">
+                  Responsável de equipa (supervisor)
+                </label>
+                <select
+                  value={formSupervisor}
+                  onChange={(e) => setFormSupervisor(e.target.value)}
+                  className="mb-3 w-full rounded-lg border border-white/10 bg-input px-3 py-2 text-sm text-white outline-none"
+                >
+                  <option value="">— Nenhum (fallback skill) —</option>
+                  {supervisoresEquipa.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             <p className="mb-3 text-[10px] text-muted">
               OAuth: o email tem de existir aqui antes do 1.º login Google.
             </p>

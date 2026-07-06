@@ -65,6 +65,8 @@ export interface AgenteSupervisao {
   tmtFormatado: string;
   tmtSegundos: number;
   isSuper: boolean;
+  perfilSlug?: string;
+  supervisorId?: string | null;
   casoAtivoId: string | null;
   casoAtivoCasoId: string | null;
   casoAtivoTs: number | null;

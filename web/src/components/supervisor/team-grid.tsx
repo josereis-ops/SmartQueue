@@ -141,6 +141,13 @@ export function TeamGrid({
   const operadores = filtrados.filter((a) => !a.isSuper);
   const supervisores = filtrados.filter((a) => a.isSuper);
 
+  const membrosDoSupervisor = (supervisor: AgenteSupervisao) =>
+    operadores.filter(
+      (m) =>
+        m.supervisorId === supervisor.id ||
+        (!m.supervisorId && m.equipaOp === supervisor.equipaOp)
+    );
+
   const alterarEstado = async (
     agente: AgenteSupervisao,
     nova: PresencaStatus,
@@ -157,11 +164,20 @@ export function TeamGrid({
     setErro(res.mensagem ?? "Erro ao alterar estado.");
   };
 
-  const renderMiniCard = (agente: AgenteSupervisao) => {
+  const renderMiniCard = (
+    agente: AgenteSupervisao,
+    statsEquipa?: { tratadas: number; concluidas: number; tmtSegundos: number }
+  ) => {
     const presenca = parsePresencaStatus(agente.presenca);
     const hasCaso =
       Boolean(agente.casoAtivoId) && presencaMantemCasoAtivo(presenca);
     const busy = aAlterar === agente.id;
+    const tratadas = statsEquipa?.tratadas ?? agente.tratadas;
+    const concluidas = statsEquipa?.concluidas ?? agente.concluidas;
+    const tmtFmt =
+      statsEquipa && statsEquipa.tratadas > 0
+        ? formatarTmt(Math.floor(statsEquipa.tmtSegundos / statsEquipa.tratadas))
+        : agente.tmtFormatado;
 
     return (
       <article
@@ -258,13 +274,13 @@ export function TeamGrid({
 
         <div className="mt-1.5 flex justify-between border-t border-white/5 pt-1 text-[9px] text-muted">
           <span>
-            <strong className="text-white">{agente.tratadas}</strong> hoje
+            <strong className="text-white">{tratadas}</strong> hoje
           </span>
           <span>
-            <strong className="text-emerald-400">{agente.concluidas}</strong> conc
+            <strong className="text-emerald-400">{concluidas}</strong> conc
           </span>
           <span>
-            TMT <strong className="text-brand">{agente.tmtFormatado}</strong>
+            TMT <strong className="text-brand">{tmtFmt}</strong>
           </span>
         </div>
       </article>
@@ -293,7 +309,21 @@ export function TeamGrid({
             👑 Supervisão
           </h3>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {supervisores.map(renderMiniCard)}
+            {supervisores.map((sup) => {
+              const membros = membrosDoSupervisor(sup);
+              const stats =
+                membros.length > 0
+                  ? {
+                      tratadas: membros.reduce((s, m) => s + m.tratadas, 0),
+                      concluidas: membros.reduce((s, m) => s + m.concluidas, 0),
+                      tmtSegundos: membros.reduce(
+                        (s, m) => s + m.tmtSegundos * m.tratadas,
+                        0
+                      ),
+                    }
+                  : undefined;
+              return renderMiniCard(sup, stats);
+            })}
           </div>
         </section>
       )}
@@ -341,7 +371,7 @@ export function TeamGrid({
           👨‍💻 Operação
         </h3>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {operadores.map(renderMiniCard)}
+          {operadores.map((a) => renderMiniCard(a))}
         </div>
       </section>
     </div>

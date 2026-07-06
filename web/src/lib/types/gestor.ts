@@ -91,6 +91,8 @@ export interface UtilizadorEquipa {
   perfil_slug: string;
   role: string;
   tem_auth: boolean;
+  supervisor_id: string | null;
+  supervisor_nome: string | null;
 }
 
 export interface PermissoesGestaoEquipa {

@@ -151,7 +151,9 @@ export function CasoDrilldownModal({
     void carregarPagina();
   }, [carregarPagina, refreshKey]);
 
-  const operadores = agentes.filter((a) => !a.isSuper);
+  const operadores = agentes.filter(
+    (a) => a.perfilSlug === "colaborador" || (!a.perfilSlug && !a.isSuper)
+  );
 
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const paginaActual = Math.min(pagina, totalPaginas - 1);
